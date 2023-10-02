@@ -137,3 +137,131 @@ You may pass `None` in order to exclude the view from schema generation. ([Schem
 def view(request):
     return Response({"message": "Will not appear in schema!"})
 ```
+
+# Generic views
+منبع  : https://www.django-rest-framework.org/api-guide/generic-views/
+
+``` python
+from django.contrib.auth.models import User
+from myapp.serializers import UserSerializer
+from rest_framework import generics
+from rest_framework.permissions import IsAdminUser
+
+class UserList(generics.ListCreateAPIView):
+    queryset = User.objects.all()
+    serializer_class = UserSerializer
+    permission_classes = [IsAdminUser]
+
+    def list(self, request):
+        # Note the use of `get_queryset()` instead of `self.queryset`
+        queryset = self.get_queryset()
+        serializer = UserSerializer(queryset, many=True)
+        return Response(serializer.data)
+```
+For very simple cases you might want to pass through any class attributes using the `.as_view()` method.
+``` python
+path('users/', ListCreateAPIView.as_view(queryset=User.objects.all(), serializer_class=UserSerializer), name='user-list')
+```
+
+## Attrubutes
+### Basic settings
+- `queryset`
+- `serializer_class`
+- `lookup_field` (default=`'pk'`)
+- `lookup_url_kwarg` (default=`lookup_field`)
+
+### Pagination
+- `pagination_class`
+
+settings -> `DEFAULT_PAGINATION_CLASS`=`'rest_framework.pagination.PageNumberPagination'`
+
+disable pagination on this view -> `pagination_class`=`None`
+
+### Filtering
+- `filter_backends`
+
+settings -> `DEFAULT_FILTER_BACKENDS`
+
+## Methods
+### Base methods
+- `get_queryset(self)`
+
+Returns the queryset that should be used for `list views`, and that should be used as the base for lookups in `detail views`.
+``` python
+def get_queryset(self):
+    user = self.request.user
+    return user.accounts.all()
+```
+- `get_objects(self)`
+
+Returns an object instance that should be used for `detail views`.
+
+Defaults to using the `lookup_field` parameter to filter the base queryset.
+
+``` python
+def get_object(self):
+    queryset = self.get_queryset()
+    filter = {}
+    for field in self.multiple_lookup_fields:
+        filter[field] = self.kwargs[field]
+
+    obj = get_object_or_404(queryset, **filter)
+    self.check_object_permissions(self.request, obj)
+    return obj
+```
+
+- `filter_queryset(self, queryset)`
+``` python
+def filter_queryset(self, queryset):
+    filter_backends = [CategoryFilter]
+
+    if 'geo_route' in self.request.query_params:
+        filter_backends = [GeoRouteFilter, CategoryFilter]
+    elif 'geo_point' in self.request.query_params:
+        filter_backends = [GeoPointFilter, CategoryFilter]
+
+    for backend in list(filter_backends):
+        queryset = backend().filter_queryset(self.request, queryset, view=self)
+
+    return queryset
+```
+
+- `get_serializer_class(self)`
+
+May be overridden to provide dynamic behavior
+``` python
+def get_serializer_class(self):
+    if self.request.user.is_staff:
+        return FullAccountSerializer
+    return BasicAccountSerializer
+```
+
+### Save and deletion hooks
+- `perform_create(self, serializer)` called by `CreateModelMixin`
+- `perform_update(self, serializer)` called by `UpdateModelMixin`
+- `perform_destroy(self, instance)` called by `DestroyModelMixin`
+
+``` python
+def perform_create(self, serializer):
+    serializer.save(user=self.request.user)
+
+def perform_update(self, serializer):
+    instance = serializer.save()
+    send_email_confirmation(user=self.request.user, modified=instance)
+```
+You can also use these hooks to provide additional validation, by raising a `ValidationError()`.
+``` python
+def perform_create(self, serializer):
+    queryset = SignupRequest.objects.filter(user=self.request.user)
+    if queryset.exists():
+        raise ValidationError('You have already signed up')
+    serializer.save(user=self.request.user)
+```
+### Other methods
+- `get_serializer_context(self)` (default=`request`, `view`, `format`)
+- `get_serializer(self, instance=None, data=None, many=False, partial=False)`
+- `get_paginated_response(self, data)`
+- `paginate_queryset(self, queryset)` (`None` if pagination is not configured for this view.)
+- `filter_queryset(self, queryset)`
+
+## Mixins
