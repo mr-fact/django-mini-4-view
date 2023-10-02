@@ -73,4 +73,67 @@ class ListUsers(APIView):
 `.perform_content_negotiation(self, request, force=False)`
 
 ### Dispatch methods
-`.dispatch()` -> `.get()`, `.post()`, `put()`, `patch()` and `.delete()`
+`.dispatch()` -> `.initial(self, request, *args, **kwargs)` -> `.get()`, `.post()`, `put()`, `patch()` and `.delete()`
+
+If you need to customize the error responses your API returns you should subclass `.handle_exception(self, exc)`.
+
+`.initialize_request(self, request, *args, **kwargs)` -> handler -> `.finalize_response(self, request, response, *args, **kwargs)`
+
+## Function Based Views
+`@api_view(http_method_names=['GET'])`
+
+By default only GET methods will be accepted
+
+and other methods -> `405 Method Not Allowed`
+
+``` python
+@api_view(['GET', 'POST'])
+def hello_world(request):
+    if request.method == 'POST':
+        return Response({"message": "Got some data!", "data": request.data})
+    return Response({"message": "Hello, world!"})
+```
+
+### API policy decorators
+uses a [throttle](https://www.django-rest-framework.org/api-guide/throttling/) to ensure it can only be called once per day by a particular user, use the `@throttle_classes` decorator, passing a list of throttle classes:
+``` python
+from rest_framework.decorators import api_view, throttle_classes
+from rest_framework.throttling import UserRateThrottle
+
+class OncePerDayUserThrottle(UserRateThrottle):
+    rate = '1/day'
+
+@api_view(['GET'])
+@throttle_classes([OncePerDayUserThrottle])
+def view(request):
+    return Response({"message": "Hello for today! See you tomorrow!"})
+```
+
+- `@renderer_classes(...)`
+- `@parser_classes(...)`
+- `@authentication_classes(...)`
+- `@throttle_classes(...)`
+- `@permission_classes(...)`
+
+### View schema decorator
+`@schema` must come after **(below)** the `@api_view` decorator. For example:
+``` python
+from rest_framework.decorators import api_view, schema
+from rest_framework.schemas import AutoSchema
+
+class CustomAutoSchema(AutoSchema):
+    def get_link(self, path, method, base_url):
+        # override view introspection here...
+
+@api_view(['GET'])
+@schema(CustomAutoSchema())
+def view(request):
+    return Response({"message": "Hello for today! See you tomorrow!"})
+```
+You may pass `None` in order to exclude the view from schema generation. ([Schemas documentation](https://www.django-rest-framework.org/api-guide/schemas/))
+``` python
+@api_view(['GET'])
+@schema(None)
+def view(request):
+    return Response({"message": "Will not appear in schema!"})
+```
