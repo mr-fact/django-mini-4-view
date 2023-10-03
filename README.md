@@ -265,3 +265,132 @@ def perform_create(self, serializer):
 - `filter_queryset(self, queryset)`
 
 ## Mixins
+`rest_framework.mixins`
+
+### ListModelMixin
+`.list(request, *args, **kwargs)`
+
+- Response -> `200 OK`, serialized representation of the querysert [paginated]
+
+### CreateModelMixin
+`.create(request, *args, **kwargs)`
+
+- Response -> `201 Created`, serialized representation of the object
+- Response -> `400 Bad Request`, error details
+
+If the representation contains a key named `url`, then the `Location` header of the response will be populated with that value.
+
+### RetrieveModelMixin
+`retrieve(request, *args, **kwargs)`
+
+- Response -> `200 OK`, serialized representation of the object
+- Response -> `404 Not Found`, None
+
+### UPdateModelMixin
+`.update(request, *args, **kwargs)` (`PUT`)
+
+`.partial_update(request, *args, **kwargs)` (`PATH`)
+
+- Response -> `200 OK`, serialized representation of the object
+- Response -> `400 Bad Request`, error details
+
+### DestroyModelMixin
+`destroy(request, *args, **kwargs)`
+
+- Response -> `204 No content`, None
+- Response -> `404 Not Found`, None
+
+## Concrete View Classes
+`rest_framework.generics`
+
+### CreateAPIView
+(GenericAPIView, CreateModelMixin)
+
+`create-only`, `single model instance`, `POST`
+
+### ListAPIView
+(GenericAPIView, ListModelMixin)
+
+`read-only`, `collection of model instances`, `GET`
+
+### RetrieveAPIView
+(GenericAPIView, RetrieveModelMixin)
+
+`read-only`, `single model instance`, `GET`
+
+### DestroyAPIView
+(GenericAPIView, DestroyModelMixin)
+
+`read-only`, `single model instance`, `DELETE`
+
+### UpdateAPIView
+(GenericAPIView, UpdateModelMixin)
+
+`update-only`, `single model instance`, `PUT`, `PATCH`
+
+### ListCreateAPIView
+(GenericAPIView, ListModelMixin, CreateModelMixin)
+
+
+`read-write`, `collection of model instances`, `GET`, `POST`
+
+### RetrieveUpdateAPIView
+(GenericAPIView, RetrieveModelMixin, UpdateModelMixin)
+
+`read-update`, `single model instance`, `GET`, `PUT`, `PATCH`
+
+### RetrieveDestroyAPIView
+(GenericAPIView, RetrieveModelMixin, DestroyModelMixin)
+
+`read-delete`, `single model instance`, `GET`, `DELETE`
+
+### RetrieveUpdateDestroyAPIView
+(GenericAPIView, RetrieveModelMixin, UpdateModelMixin, DestroyModelMixin)
+
+`read-write-delete`, `single model instance`, `GET`, `PUT`, `PATCH`, `DELETE`
+
+
+## Customizing the generic views
+### Creating custom mixins
+``` python
+class MultipleFieldLookupMixin:
+    """
+    Apply this mixin to any view or viewset to get multiple field filtering
+    based on a `lookup_fields` attribute, instead of the default single field filtering.
+    """
+    def get_object(self):
+        queryset = self.get_queryset()             # Get the base queryset
+        queryset = self.filter_queryset(queryset)  # Apply any filter backends
+        filter = {}
+        for field in self.lookup_fields:
+            if self.kwargs.get(field): # Ignore empty fields.
+                filter[field] = self.kwargs[field]
+        obj = get_object_or_404(queryset, **filter)  # Lookup the object
+        self.check_object_permissions(self.request, obj)
+        return obj
+
+class RetrieveUserView(MultipleFieldLookupMixin, generics.RetrieveAPIView):
+    queryset = User.objects.all()
+    serializer_class = UserSerializer
+    lookup_fields = ['account', 'username']
+```
+
+### Creating custom base classes
+``` python
+class BaseRetrieveView(MultipleFieldLookupMixin,
+                       generics.RetrieveAPIView):
+    pass
+
+class BaseRetrieveUpdateDestroyView(MultipleFieldLookupMixin,
+                                    generics.RetrieveUpdateDestroyAPIView):
+    pass
+```
+
+## PUT as create
+Both styles `PUT as 404` and `PUT as create` can be valid in different circumstances, but from version 3.0 onwards we now use `404` behavior as the default, due to it being simpler and more obvious.
+
+If you need to generic `PUT-as-create` behavior you may want to include something like this [AllowPUTAsCreateMixin](https://gist.github.com/tomchristie/a2ace4577eff2c603b1b)https://gist.github.com/tomchristie/a2ace4577eff2c603b1b class as a mixin to your views.
+
+## Third party packages
+### Django Rest Multiple Models
+[Django Rest Multiple Models](https://github.com/MattBroach/DjangoRestMultipleModels) provides a generic view (and mixin) for sending multiple serialized models and/or querysets via a single API request.
