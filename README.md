@@ -394,3 +394,257 @@ If you need to generic `PUT-as-create` behavior you may want to include somethin
 ## Third party packages
 ### Django Rest Multiple Models
 [Django Rest Multiple Models](https://github.com/MattBroach/DjangoRestMultipleModels) provides a generic view (and mixin) for sending multiple serialized models and/or querysets via a single API request.
+
+# ViewSets
+منبع  : https://www.django-rest-framework.org/api-guide/viewsets/
+
+`ViewSet` in other frameworkds -> `Resources` or `Controllers`
+
+~~`.get()`~~, ~~`.post()`~~ -> `.list()`, `.create()`
+
+``` python
+from django.contrib.auth.models import User
+from django.shortcuts import get_object_or_404
+from myapps.serializers import UserSerializer
+from rest_framework import viewsets
+from rest_framework.response import Response
+
+class UserViewSet(viewsets.ViewSet):
+    """
+    A simple ViewSet for listing or retrieving users.
+    """
+    def list(self, request):
+        queryset = User.objects.all()
+        serializer = UserSerializer(queryset, many=True)
+        return Response(serializer.data)
+
+    def retrieve(self, request, pk=None):
+        queryset = User.objects.all()
+        user = get_object_or_404(queryset, pk=pk)
+        serializer = UserSerializer(user)
+        return Response(serializer.data)
+```
+
+bind this viewset into two seprate views
+``` python
+user_list = UserViewSet.as_view({'get': 'list'})
+user_detail = UserViewSet.as_view({'get': 'retrieve'})
+```
+
+automatically generated
+``` python
+from myapp.views import UserViewSet
+from rest_framework.routers import DefaultRouter
+
+router = DefaultRouter()
+router.register(r'users', UserViewSet, basename='user')
+urlpatterns = router.urls
+```
+
+`ModelViewSet`
+``` python
+class UserViewSet(viewsets.ModelViewSet):
+    """
+    A viewset for viewing and editing user instances.
+    """
+    serializer_class = UserSerializer
+    queryset = User.objects.all()
+```
+
+ViewSet is better:
+- Repeated logic can be combined into a single class. In the above example, we only need to specify the `queryset` once, and it'll be used across multiple views.
+- By using routers, we no longer need to deal with wiring up the URL conf ourselves.
+- you want to get up and running quickly, or when you have a large API and you want to enforce a consistent URL configuration throughout.
+
+View is better:
+- Using regular views and URL confs is more explicit and gives you more control.
+
+## ViewSet actions
+``` python
+class UserViewSet(viewsets.ViewSet):
+    """
+    Example empty viewset demonstrating the standard
+    actions that will be handled by a router class.
+
+    If you're using format suffixes, make sure to also include
+    the `format=None` keyword argument for each action.
+    """
+
+    def list(self, request):
+        pass
+
+    def create(self, request):
+        pass
+
+    def retrieve(self, request, pk=None):
+        pass
+
+    def update(self, request, pk=None):
+        pass
+
+    def partial_update(self, request, pk=None):
+        pass
+
+    def destroy(self, request, pk=None):
+        pass
+```
+
+## Introspecting ViewSet actions
+ViewSet attrebutes:
+- `basename` ->  the base to use for the URL names that are created.
+- `action` -> the name of the current action (e.g., `list`, `create`).
+- `detail` -> `true` for detail view and `false` for list view
+- `suffix` -> the display suffix for the viewset type - mirrors the `detail` attribute.
+- `name` -> the display name for the viewset. This argument is mutually exclusive to `suffix`.
+- `description` -> the display description for the individual view of a viewset.
+
+``` python
+def get_permissions(self):
+    """
+    Instantiates and returns the list of permissions that this view requires.
+    """
+    if self.action == 'list':
+        permission_classes = [IsAuthenticated]
+    else:
+        permission_classes = [IsAdminUser]
+    return [permission() for permission in permission_classes]
+```
+
+## Marking extra actions for routing
+``` python
+from django.contrib.auth.models import User
+from rest_framework import status, viewsets
+from rest_framework.decorators import action
+from rest_framework.response import Response
+from myapp.serializers import UserSerializer, PasswordSerializer
+
+class UserViewSet(viewsets.ModelViewSet):
+    """
+    A viewset that provides the standard actions
+    """
+    queryset = User.objects.all()
+    serializer_class = UserSerializer
+
+    @action(detail=True, methods=['post'])
+    def set_password(self, request, pk=None):
+        user = self.get_object()
+        serializer = PasswordSerializer(data=request.data)
+        if serializer.is_valid():
+            user.set_password(serializer.validated_data['password'])
+            user.save()
+            return Response({'status': 'password set'})
+        else:
+            return Response(serializer.errors,
+                            status=status.HTTP_400_BAD_REQUEST)
+
+    @action(detail=False)
+    def recent_users(self, request):
+        recent_users = User.objects.all().order_by('-last_login')
+
+        page = self.paginate_queryset(recent_users)
+        if page is not None:
+            serializer = self.get_serializer(page, many=True)
+            return self.get_paginated_response(serializer.data)
+
+        serializer = self.get_serializer(recent_users, many=True)
+        return Response(serializer.data)
+```
+
+The `action` decorator will route `GET` requests by default, but may also accept other `HTTP methods` by setting the methods argument.
+
+``` python
+    @action(detail=True, methods=['post', 'delete'])
+    def unset_password(self, request, pk=None):
+       ...
+```
+
+The decorator allows you to override any viewset-level configuration such as `permission_classes`, `serializer_class`, `filter_backends`...:
+``` python
+    @action(detail=True, methods=['post'], permission_classes=[IsAdminOrIsSelf])
+    def set_password(self, request, pk=None):
+       ...
+```
+
+The two new actions will then be available at the urls `^users/{pk}/set_password/$ ` and `^users/{pk}/unset_password/$`. Use the `url_path` and `url_name` parameters to change the URL segment and the reverse URL name of the action.
+
+To view all extra actions, call the `.get_extra_actions()` method.
+
+## Routing additional HTTP methods for extra actions
+``` python
+    @action(detail=True, methods=['put'], name='Change Password')
+    def password(self, request, pk=None):
+        """Update the user's password."""
+        ...
+
+    @password.mapping.delete
+    def delete_password(self, request, pk=None):
+        """Delete the user's password."""
+        ...
+```
+
+## Reversing action URLs
+`.reverse_action()` is a convenience wrapper for `reverse()`, automatically passing the view's `request` object and prepending the `url_name` with the `.basename` attribute.
+
+If you are not using a router, then you must provide the `basename` argument to the `.as_view()` method.
+
+```python
+>>> view.reverse_action('set-password', args=['1'])
+'http://localhost:8000/api/users/1/set_password'
+```
+``` python
+>>> view.reverse_action(view.set_password.url_name, args=['1'])
+'http://localhost:8000/api/users/1/set_password'
+```
+
+## API Reference
+### ViewSet
+- inherits from `APIView`
+- use any of the standard attributes (`permission_classes`, `authentication_classes`)
+- does not provide any implementation of `actions`
+- define the `action` implementations explicity
+
+### GenericViewSet
+- inherits from `GenericAPIView`
+- provides the default set of `.get_object()`, `.get_queryset()` methods
+- does not include any `actions`
+- to use this you'll define the `actions`
+
+### ModelViewSet
+- inherits from `GenericAPIView`
+- includes implementations for various actions, by mixing in the behavior of the various mixin classes
+- actions -> `.list()`, `.retrieve()`, `.create()`, `.update()`, `.partual_update()`, `.destroy()`
+
+``` python
+
+class AccountViewSet(viewsets.ModelViewSet):
+    """
+    A simple ViewSet for viewing and editing the accounts
+    associated with the user.
+    """
+    serializer_class = AccountSerializer
+    permission_classes = [IsAccountAdminOrReadOnly]
+
+    def get_queryset(self):
+        return self.request.user.accounts.all()
+```
+
+### ReadOnlyModelViewSet
+- inherits from `GenericAPIView`
+- only provides the `'read-only'` actions, `.list()` and `.retrieve()`.
+
+## Custom ViewSet base classes
+``` python
+from rest_framework import mixins
+
+class CreateListRetrieveViewSet(mixins.CreateModelMixin,
+                                mixins.ListModelMixin,
+                                mixins.RetrieveModelMixin,
+                                viewsets.GenericViewSet):
+    """
+    A viewset that provides `retrieve`, `create`, and `list` actions.
+
+    To use it, override the class and set the `.queryset` and
+    `.serializer_class` attributes.
+    """
+    pass
+```
