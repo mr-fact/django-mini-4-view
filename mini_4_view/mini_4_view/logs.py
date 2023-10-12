@@ -5,9 +5,9 @@ def start_end_log(func):
         log_message = getattr(func, 'log_message', '')
         log_level = getattr(func, 'log_level', 0)
         log_level_spaces = log_level * '  '
-        print(f'{log_level_spaces}+++[{func.__name__} - {log_message}]')
+        print(f'\n{log_level_spaces}+++[{func.__name__} <- {args} - {kwargs}]')
         result = func(self, *args, **kwargs)
-        print(f'{log_level_spaces}---[{func.__name__} - {log_message}]')
+        print(f'{log_level_spaces}---[{func.__name__} -> {result}]\n')
         return result
     return inner
 
